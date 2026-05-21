@@ -15,6 +15,11 @@ type StaticDataset = {
   profiles: Profile[];
 };
 
+type StaticState = StaticDataset & {
+  swipeEvents: SwipeEvent[];
+  matches: MatchRecord[];
+};
+
 type SwipeEvent = {
   id: string;
   action: SwipeAction;
@@ -31,14 +36,43 @@ type MatchRecord = {
 };
 
 const seed = dataset as unknown as StaticDataset;
+const STORAGE_KEY = "parentmarry-static-demo-v1";
 const now = () => new Date().toISOString();
-const users = new Map(seed.users.map((user) => [user.id, clone(user)]));
-const profiles = new Map(seed.profiles.map((profile) => [profile.id, clone(profile)]));
-const swipeEvents: SwipeEvent[] = [];
-const matches: MatchRecord[] = [];
+const persisted = loadState();
+const users = new Map((persisted?.users || seed.users).map((user) => [user.id, clone(user)]));
+const profiles = new Map((persisted?.profiles || seed.profiles).map((profile) => [profile.id, clone(profile)]));
+const swipeEvents: SwipeEvent[] = clone(persisted?.swipeEvents || []);
+const matches: MatchRecord[] = clone(persisted?.matches || []);
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function loadState(): StaticState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as StaticState) : null;
+  } catch {
+    return null;
+  }
+}
+
+function persist() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        users: Array.from(users.values()),
+        profiles: Array.from(profiles.values()),
+        swipeEvents,
+        matches,
+      }),
+    );
+  } catch {
+    // Static demo storage is best effort; the app still works in memory.
+  }
 }
 
 function newId(prefix: string) {
@@ -224,6 +258,7 @@ export const staticApi = {
       created_at: now(),
     };
     users.set(user.id, user);
+    persist();
     return clone(user);
   },
 
@@ -255,6 +290,7 @@ export const staticApi = {
       updated_at: now(),
     };
     profiles.set(profile.id, profile);
+    persist();
     return clone(profile);
   },
 
@@ -268,6 +304,7 @@ export const staticApi = {
       updated_at: now(),
     };
     profiles.set(profileId, updated);
+    persist();
     return clone(updated);
   },
 
@@ -275,6 +312,7 @@ export const staticApi = {
     const profile = requireProfile(profileId);
     const updated = { ...profile, public_page: payload, updated_at: now() };
     profiles.set(profileId, updated);
+    persist();
     return clone(updated);
   },
 
@@ -282,6 +320,7 @@ export const staticApi = {
     const profile = requireProfile(profileId);
     const updated = { ...profile, status: "active" as const, completeness: 100, updated_at: now() };
     profiles.set(profileId, updated);
+    persist();
     return clone(updated);
   },
 
@@ -334,6 +373,7 @@ export const staticApi = {
     };
     swipeEvents.push(event);
     const match = action === "like" ? getOrCreateMatch(actorProfileId, targetProfileId) : null;
+    persist();
     return clone({ event, match }) as SwipeResult;
   },
 

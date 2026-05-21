@@ -1,14 +1,24 @@
 import {
+  Bell,
   Bookmark,
   Check,
   ChevronLeft,
+  ChevronRight,
   Compass,
+  Database,
+  Eye,
+  FileText,
+  HelpCircle,
   Heart,
+  Lock,
+  LogOut,
   Loader2,
   MapPin,
   Pencil,
   Search,
+  Settings,
   Shield,
+  SlidersHorizontal,
   Sparkles,
   UserRound,
   X,
@@ -27,7 +37,7 @@ import type {
   User,
 } from "./types";
 
-type Tab = "browse" | "likes" | "me";
+type Tab = "browse" | "likes" | "me" | "settings";
 
 interface Filters {
   city: string;
@@ -65,6 +75,7 @@ const tabs = [
   { key: "browse", label: "看对象", icon: Compass },
   { key: "likes", label: "心动", icon: Heart },
   { key: "me", label: "我的", icon: UserRound },
+  { key: "settings", label: "设置", icon: Settings },
 ] as const;
 
 const AGE_BANDS = ["全部", "30 岁以下", "30-35 岁", "36 岁以上"];
@@ -137,6 +148,7 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [editing, setEditing] = useState(false);
   const [tab, setTab] = useState<Tab>("browse");
+  const [ownProfileOpen, setOwnProfileOpen] = useState(false);
   const [phone, setPhone] = useState(import.meta.env.VITE_STATIC_DEMO === "true" ? "13900000005" : "13812345678");
   const [loading, setLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -160,7 +172,30 @@ export default function App() {
   }
 
   async function handleLogin() {
-    const loggedIn = await runTask("登录中", () => api.login(phone, "体验家长"));
+    const normalizedPhone = phone.trim();
+    if (!/^1\d{10}$/.test(normalizedPhone)) {
+      setToast("请输入 11 位手机号");
+      return;
+    }
+    const loggedIn = await runTask("登录中", () => api.login(normalizedPhone, "体验家长"));
+    setUser(loggedIn);
+    const current = await api.currentProfile(loggedIn.id);
+    if (current) {
+      setProfile(current);
+      if (current.status === "active") {
+        await loadCandidates(current.id);
+        await loadMatches(current.id);
+      }
+    }
+  }
+
+  function quickLogin() {
+    setPhone("13900000005");
+    void handleLoginWithPhone("13900000005");
+  }
+
+  async function handleLoginWithPhone(nextPhone: string) {
+    const loggedIn = await runTask("登录中", () => api.login(nextPhone, "体验家长"));
     setUser(loggedIn);
     const current = await api.currentProfile(loggedIn.id);
     if (current) {
@@ -209,6 +244,18 @@ export default function App() {
     } else {
       setToast(actionLabel(action));
     }
+  }
+
+  function logout() {
+    setUser(null);
+    setProfile(null);
+    setCandidates([]);
+    setMatches([]);
+    setSelected(null);
+    setOwnProfileOpen(false);
+    setActions({});
+    setActedItems({});
+    setTab("browse");
   }
 
   const visibleCandidates = useMemo(() => {
@@ -269,8 +316,11 @@ export default function App() {
             <input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" />
           </label>
           <button className="primary-button full" onClick={handleLogin} disabled={Boolean(loading)}>
-            {loading ? <Loader2 className="spin" size={18} /> : <Shield size={18} />}
+            {loading ? <Loader2 className="spin" size={16} /> : <Shield size={16} />}
             进入体验
+          </button>
+          <button className="text-button" onClick={quickLogin} disabled={Boolean(loading)}>
+            使用示例账号快速进入
           </button>
         </motion.section>
       </main>
@@ -311,7 +361,25 @@ export default function App() {
         {tab === "likes" && (
           <LikesView matches={matches} liked={likedItems} actions={actions} onOpen={setSelected} />
         )}
-        {tab === "me" && <MeView profile={profile} onEdit={() => setEditing(true)} />}
+        {tab === "me" && (
+          <MeView
+            profile={profile}
+            user={user}
+            likedCount={likedItems.length}
+            matchCount={matches.length}
+            onOpenProfile={() => setOwnProfileOpen(true)}
+            onEdit={() => setEditing(true)}
+            setToast={setToast}
+          />
+        )}
+        {tab === "settings" && (
+          <SettingsView
+            profile={profile}
+            onEdit={() => setEditing(true)}
+            onLogout={logout}
+            setToast={setToast}
+          />
+        )}
 
         {toast && (
           <button className="toast floating" onClick={() => setToast(null)}>
@@ -324,7 +392,7 @@ export default function App() {
             const Icon = item.icon;
             return (
               <button key={item.key} className={tab === item.key ? "active" : ""} onClick={() => setTab(item.key)}>
-                <Icon size={20} />
+                <Icon size={18} />
                 <span>{item.label}</span>
               </button>
             );
@@ -340,6 +408,16 @@ export default function App() {
             onClose={() => setSelected(null)}
             onAction={act}
             loading={loading}
+          />
+        )}
+        {ownProfileOpen && (
+          <OwnProfileDetail
+            profile={profile}
+            onClose={() => setOwnProfileOpen(false)}
+            onEdit={() => {
+              setOwnProfileOpen(false);
+              setEditing(true);
+            }}
           />
         )}
       </AnimatePresence>
@@ -621,7 +699,195 @@ function LikesView({
   );
 }
 
-function MeView({ profile, onEdit }: { profile: Profile; onEdit: () => void }) {
+function MeView({
+  profile,
+  user,
+  likedCount,
+  matchCount,
+  onOpenProfile,
+  onEdit,
+  setToast,
+}: {
+  profile: Profile;
+  user: User;
+  likedCount: number;
+  matchCount: number;
+  onOpenProfile: () => void;
+  onEdit: () => void;
+  setToast: (message: string | null) => void;
+}) {
+  const page = profile.public_page;
+
+  return (
+    <div className="screen">
+      <header className="screen-head">
+        <div>
+          <span className="eyebrow">我的</span>
+          <h1>个人中心</h1>
+        </div>
+      </header>
+      <div className="screen-body">
+        <button className="me-card tappable-card" onClick={onOpenProfile}>
+          {profile.photos[0] ? (
+            <img className="me-photo" src={publicAsset(profile.photos[0])} alt={profile.child_name} />
+          ) : (
+            <div className="me-photo placeholder">{profile.child_name.slice(0, 1) || "牵"}</div>
+          )}
+          <div className="me-meta">
+            <strong>{profile.child_name}</strong>
+            <small>{ageOf(profile)} 岁 · {profile.city} · {profile.job_type}</small>
+            <span className="status-chip"><Check size={13} /> 资料已发布</span>
+          </div>
+          <ChevronRight className="row-arrow" size={18} />
+        </button>
+
+        {page.headline && <p className="me-headline">{page.headline}</p>}
+
+        <section className="metric-strip">
+          <span>
+            <strong>{profile.completeness}%</strong>
+            <small>资料完整度</small>
+          </span>
+          <span>
+            <strong>{likedCount}</strong>
+            <small>已关注</small>
+          </span>
+          <span>
+            <strong>{matchCount}</strong>
+            <small>双向心动</small>
+          </span>
+        </section>
+
+        <section className="settings-group">
+          <div className="group-title">常用功能</div>
+          <div className="settings-list">
+            <button className="settings-row" onClick={onEdit}>
+              <FileText size={17} />
+              <span>
+                <strong>编辑孩子资料</strong>
+                <small>补充职业、家庭、择偶偏好</small>
+              </span>
+              <ChevronRight className="row-arrow" size={17} />
+            </button>
+            <button className="settings-row" onClick={onOpenProfile}>
+              <Eye size={17} />
+              <span>
+                <strong>查看公开档案</strong>
+                <small>对外展示的完整资料页</small>
+              </span>
+              <ChevronRight className="row-arrow" size={17} />
+            </button>
+            <button className="settings-row" onClick={() => setToast("分享预览稍后接入")}>
+              <Sparkles size={17} />
+              <span>
+                <strong>生成介绍话术</strong>
+                <small>给亲友或红娘看的简短版本</small>
+              </span>
+              <ChevronRight className="row-arrow" size={17} />
+            </button>
+          </div>
+        </section>
+
+        <section className="settings-group">
+          <div className="group-title">账号</div>
+          <div className="settings-list">
+            <div className="settings-row static-row">
+              <UserRound size={17} />
+              <span>
+                <strong>{user.display_name}</strong>
+                <small>{user.phone}</small>
+              </span>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function SettingsView({
+  profile,
+  onEdit,
+  onLogout,
+  setToast,
+}: {
+  profile: Profile;
+  onEdit: () => void;
+  onLogout: () => void;
+  setToast: (message: string | null) => void;
+}) {
+  const settingSections = [
+    {
+      title: "推荐设置",
+      rows: [
+        { icon: SlidersHorizontal, title: "筛选偏好", desc: `${profile.preference_city} · ${profile.preference_education}`, action: onEdit },
+        { icon: Bell, title: "推荐提醒", desc: "每天少量推荐，避免信息过载", action: () => setToast("提醒设置稍后接入") },
+      ],
+    },
+    {
+      title: "安全与展示",
+      rows: [
+        { icon: Lock, title: "隐私与联系方式", desc: "联系方式默认不公开", action: () => setToast("隐私设置稍后接入") },
+        { icon: Eye, title: "资料展示范围", desc: "控制谁能看到孩子资料", action: () => setToast("展示范围稍后接入") },
+      ],
+    },
+    {
+      title: "应用",
+      rows: [
+        { icon: Database, title: "演示数据", desc: "当前使用本地模拟数据库", action: () => setToast("演示数据仅用于原型体验") },
+        { icon: HelpCircle, title: "帮助与反馈", desc: "记录使用问题和优化建议", action: () => setToast("反馈入口稍后接入") },
+      ],
+    },
+  ];
+
+  return (
+    <div className="screen">
+      <header className="screen-head">
+        <div>
+          <span className="eyebrow">设置</span>
+          <h1>偏好与账户</h1>
+        </div>
+      </header>
+      <div className="screen-body">
+        {settingSections.map((section) => (
+          <section className="settings-group" key={section.title}>
+            <div className="group-title">{section.title}</div>
+            <div className="settings-list">
+              {section.rows.map((row) => {
+                const Icon = row.icon;
+                return (
+                  <button className="settings-row" key={row.title} onClick={row.action}>
+                    <Icon size={17} />
+                    <span>
+                      <strong>{row.title}</strong>
+                      <small>{row.desc}</small>
+                    </span>
+                    <ChevronRight className="row-arrow" size={17} />
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+
+        <button className="logout-row" onClick={onLogout}>
+          <LogOut size={17} />
+          退出体验
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function OwnProfileDetail({
+  profile,
+  onClose,
+  onEdit,
+}: {
+  profile: Profile;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
   const page = profile.public_page;
   const tags = [
     ...((profile.ai_structured?.personality_tags as string[] | undefined) || profile.personality_tags || []),
@@ -636,16 +902,20 @@ function MeView({ profile, onEdit }: { profile: Profile; onEdit: () => void }) {
   ].filter((section) => section.value);
 
   return (
-    <div className="screen">
-      <header className="screen-head">
-        <div>
-          <span className="eyebrow">我的</span>
-          <h1>孩子的资料</h1>
-        </div>
-        <button className="ghost-pill" onClick={onEdit}><Pencil size={15} /> 编辑</button>
+    <motion.div
+      className="profile-overlay"
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 24 }}
+      transition={{ duration: 0.22, ease: "easeOut" }}
+    >
+      <header className="profile-overlay-head">
+        <button onClick={onClose} aria-label="返回"><ChevronLeft size={20} /></button>
+        <strong>公开档案</strong>
+        <button onClick={onEdit} aria-label="编辑"><Pencil size={17} /></button>
       </header>
-      <div className="screen-body">
-        <article className="me-card">
+      <div className="profile-overlay-body">
+        <article className="me-card profile-card-large">
           {profile.photos[0] ? (
             <img className="me-photo" src={publicAsset(profile.photos[0])} alt={profile.child_name} />
           ) : (
@@ -654,7 +924,7 @@ function MeView({ profile, onEdit }: { profile: Profile; onEdit: () => void }) {
           <div className="me-meta">
             <strong>{profile.child_name}</strong>
             <small>{ageOf(profile)} 岁 · {profile.city} · {profile.job_type}</small>
-            <span className="status-chip"><Check size={13} /> 资料已发布</span>
+            <span className="status-chip"><Check size={13} /> 正在展示</span>
           </div>
         </article>
 
@@ -675,7 +945,7 @@ function MeView({ profile, onEdit }: { profile: Profile; onEdit: () => void }) {
           </section>
         ))}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
