@@ -18,7 +18,13 @@
   --radius-lg: 20px;
   --shadow-card: 0 1px 2px rgba(31, 27, 24, 0.04), 0 10px 28px rgba(31, 27, 24, 0.06);
   --shadow-soft: 0 1px 2px rgba(31, 27, 24, 0.05);
-  --phone-width: 440px;
+  --phone-width: 375px;
+  --phone-height: 812px;
+  --safe-x: 20px;
+  --safe-y: 20px;
+  --nav-height: 88px;
+  --tab-height: 83px;
+  --tap-min: 44px;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
 }
@@ -35,7 +41,7 @@ body,
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
   background: #ebe5db;
   color: var(--ink);
   font-family: var(--font);
@@ -69,7 +75,7 @@ img {
 
 .primary-button,
 .secondary-button {
-  min-height: 50px;
+  min-height: 48px;
   border-radius: var(--radius);
   border: 1px solid transparent;
   display: inline-flex;
@@ -109,7 +115,7 @@ img {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 36px;
+  min-height: var(--tap-min);
   padding: 0 14px;
   border-radius: 999px;
   border: 1px solid var(--line-2);
@@ -126,14 +132,16 @@ img {
 /* ---------- Login ---------- */
 
 .login-shell {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: var(--safe-y);
 }
 
 .login-panel {
   width: min(100%, var(--phone-width));
+  min-height: min(var(--phone-height), calc(100dvh - var(--safe-y) * 2));
+  align-content: center;
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 28px;
@@ -255,16 +263,16 @@ img {
 /* ---------- App shell ---------- */
 
 .app-shell {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: var(--safe-y);
 }
 
 .phone-stage {
   position: relative;
   width: min(100%, var(--phone-width));
-  height: min(896px, calc(100vh - 48px));
+  height: min(var(--phone-height), calc(100dvh - var(--safe-y) * 2));
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 30px;
@@ -288,7 +296,9 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 22px 20px 14px;
+  height: var(--nav-height);
+  flex: none;
+  padding: 44px var(--safe-x) 0;
 }
 
 .eyebrow {
@@ -300,16 +310,16 @@ img {
 
 .screen-head h1 {
   margin: 3px 0 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 .screen-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 4px 16px 20px;
+  padding: 4px var(--safe-x) var(--safe-y);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -320,13 +330,13 @@ img {
 .filter-bar {
   display: flex;
   gap: 8px;
-  padding: 6px 16px 12px;
+  padding: 6px var(--safe-x) 12px;
   overflow-x: auto;
 }
 
 .filter-bar select {
   flex: none;
-  height: 36px;
+  height: var(--tap-min);
   padding: 0 30px 0 14px;
   border-radius: 999px;
   border: 1px solid var(--line-2);
@@ -345,14 +355,14 @@ img {
 
 .candidate-grid {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 
 .candidate-card {
   display: grid;
   grid-template-columns: 96px 1fr;
-  gap: 14px;
-  padding: 12px;
+  gap: 16px;
+  padding: 16px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
@@ -363,8 +373,8 @@ img {
 
 .candidate-photo {
   width: 96px;
-  height: 116px;
-  border-radius: 13px;
+  height: 120px;
+  border-radius: 16px;
   overflow: hidden;
   background: var(--accent-soft);
 }
@@ -586,14 +596,16 @@ img {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 2px;
-  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  height: calc(var(--tab-height) + env(safe-area-inset-bottom));
+  flex: none;
+  padding: 6px var(--safe-x) calc(6px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
   background: rgba(250, 248, 244, 0.92);
   backdrop-filter: blur(10px);
 }
 
 .bottom-nav button {
-  min-height: 54px;
+  min-height: 48px;
   border: 0;
   border-radius: 12px;
   background: transparent;
@@ -617,7 +629,7 @@ img {
   position: absolute;
   left: 16px;
   right: 16px;
-  bottom: 84px;
+  bottom: calc(var(--tab-height) + 12px + env(safe-area-inset-bottom));
   z-index: 30;
   padding: 12px 16px;
   border-radius: var(--radius);
@@ -632,9 +644,12 @@ img {
 
 .detail-overlay {
   position: fixed;
-  inset: 0;
+  top: max(0px, calc((100dvh - var(--phone-height)) / 2));
+  right: 0;
+  left: 0;
   z-index: 60;
   width: min(100%, var(--phone-width));
+  height: min(var(--phone-height), 100dvh);
   margin: 0 auto;
   background: var(--paper);
   display: flex;
@@ -680,10 +695,10 @@ img {
 
 .detail-back {
   position: absolute;
-  top: 16px;
-  left: 16px;
-  width: 40px;
-  height: 40px;
+  top: max(16px, env(safe-area-inset-top));
+  left: var(--safe-x);
+  width: var(--tap-min);
+  height: var(--tap-min);
   border-radius: 999px;
   border: 0;
   background: rgba(255, 255, 255, 0.9);
@@ -716,7 +731,7 @@ img {
 }
 
 .detail-body {
-  padding: 18px 20px;
+  padding: 18px var(--safe-x);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -726,8 +741,8 @@ img {
   display: flex;
   gap: 10px;
   overflow-x: auto;
-  margin: 0 -20px;
-  padding: 0 20px;
+  margin: 0 calc(var(--safe-x) * -1);
+  padding: 0 var(--safe-x);
 }
 
 .photo-gallery img {
@@ -781,7 +796,7 @@ img {
 .detail-actions {
   display: flex;
   gap: 12px;
-  padding: 12px 20px calc(14px + env(safe-area-inset-bottom));
+  padding: 12px var(--safe-x) calc(14px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
   background: var(--paper);
 }
@@ -892,9 +907,14 @@ img {
 
 .ob-shell {
   width: min(100%, var(--phone-width));
-  margin: 0 auto;
-  min-height: 100vh;
+  height: min(var(--phone-height), calc(100dvh - var(--safe-y) * 2));
+  min-height: min(var(--phone-height), calc(100dvh - var(--safe-y) * 2));
+  margin: var(--safe-y) auto;
   background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  box-shadow: 0 24px 70px rgba(31, 27, 24, 0.14);
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -903,12 +923,14 @@ img {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 16px 18px 6px;
+  height: var(--nav-height);
+  flex: none;
+  padding: 44px var(--safe-x) 0;
 }
 
 .ob-back {
-  width: 38px;
-  height: 38px;
+  width: var(--tap-min);
+  height: var(--tap-min);
   border-radius: 999px;
   border: 1px solid var(--line-2);
   background: var(--surface);
@@ -946,7 +968,7 @@ img {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 14px 22px 8px;
+  padding: 16px var(--safe-x) 8px;
 }
 
 .ob-step {
@@ -957,10 +979,10 @@ img {
 
 .ob-title {
   margin: 14px 0 0;
-  font-size: 27px;
+  font-size: 24px;
   line-height: 1.3;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 .ob-subtitle {
@@ -1203,7 +1225,7 @@ img {
 }
 
 .ob-footer {
-  padding: 12px 22px calc(16px + env(safe-area-inset-bottom));
+  padding: 12px var(--safe-x) calc(16px + env(safe-area-inset-bottom));
   background: var(--paper);
   border-top: 1px solid var(--line);
 }
@@ -1286,19 +1308,31 @@ img {
 }
 
 @media (max-width: 480px) {
+  :root {
+    --safe-x: 16px;
+    --safe-y: 0px;
+  }
+
   .login-shell,
   .app-shell {
     padding: 0;
   }
 
   .login-panel,
-  .phone-stage {
+  .phone-stage,
+  .ob-shell,
+  .detail-overlay {
     width: 100%;
-    height: 100vh;
-    min-height: 100vh;
+    height: 100dvh;
+    min-height: 100dvh;
+    margin: 0;
     border-radius: 0;
     border: 0;
     box-shadow: none;
+  }
+
+  .detail-overlay {
+    top: 0;
   }
 
   .login-panel {

@@ -9,6 +9,8 @@
     "dev:user": "npm --workspace apps/user-app run dev -- --host 0.0.0.0",
     "dev:admin": "npm --workspace apps/admin-dashboard run dev -- -p 3001",
     "build:user": "npm --workspace apps/user-app run build",
+    "build:user:static": "VITE_STATIC_DEMO=true npm --workspace apps/user-app run build",
+    "preview:user": "npm --workspace apps/user-app run preview -- --host 127.0.0.1 --port 4173",
     "build:admin": "npm --workspace apps/admin-dashboard run build",
     "typecheck": "npm --workspace apps/user-app run typecheck && npm --workspace apps/admin-dashboard run typecheck"
   }
