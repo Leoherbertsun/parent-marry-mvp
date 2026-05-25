@@ -1,33 +1,26 @@
-import {
-  Bell,
-  Bookmark,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Compass,
-  Database,
-  Eye,
-  FileText,
-  HelpCircle,
-  Heart,
-  Lock,
-  LogOut,
-  Loader2,
-  MapPin,
-  Pencil,
-  Search,
-  Settings,
-  Shield,
-  SlidersHorizontal,
-  Sparkles,
-  UserRound,
-  X,
-} from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
+import { Compass, Loader2, MessageCircle, Newspaper, Shield, UserRound, X } from "lucide-react";
+import { motion } from "framer-motion";
 import { useMemo, useState } from "react";
 import { api } from "./api";
 import { publicAsset } from "./assets";
 import { Onboarding } from "./Onboarding";
+import { BrowseView } from "./views/Browse";
+import { MessagesView, Conversation } from "./views/Messages";
+import { DiscoverView } from "./views/Discover";
+import { MeView } from "./views/Me";
+import { Membership } from "./views/Membership";
+import { LikesOverlay } from "./views/Likes";
+import { CandidateDetail, OwnProfileDetail } from "./views/Detail";
+import {
+  actionLabel,
+  autoReply,
+  DAILY_FREE_LIMIT,
+  inAgeBand,
+  initialFor,
+  MEMBERSHIP_TIERS,
+  openingMessage,
+} from "./lib";
+import type { Tab, Thread, ChatMessage } from "./lib";
 import type {
   BrowseItem,
   MatchWithProfile,
@@ -36,8 +29,6 @@ import type {
   SwipeAction,
   User,
 } from "./types";
-
-type Tab = "browse" | "likes" | "me" | "settings";
 
 interface Filters {
   city: string;
@@ -73,46 +64,18 @@ const baseDraft: ProfileInput = {
 
 const tabs = [
   { key: "browse", label: "看对象", icon: Compass },
-  { key: "likes", label: "心动", icon: Heart },
+  { key: "messages", label: "消息", icon: MessageCircle },
+  { key: "discover", label: "发现", icon: Newspaper },
   { key: "me", label: "我的", icon: UserRound },
-  { key: "settings", label: "设置", icon: Settings },
 ] as const;
 
-const AGE_BANDS = ["全部", "30 岁以下", "30-35 岁", "36 岁以上"];
+const DEFAULT_ASSISTANT: ChatMessage[] = [
+  { id: "asst-1", from: "them", text: "我是牵线红娘小牵，会在这里同步推荐进展。", time: "上午 9:30" },
+  { id: "asst-2", from: "them", text: "今天给孩子挑了几位合适的，去「看对象」看看，合适就加好友，我来牵线。", time: "上午 9:30" },
+];
 
-function ageOf(profile: Profile) {
-  return new Date().getFullYear() - profile.birth_year;
-}
-
-function inAgeBand(age: number, band: string) {
-  if (band === "30 岁以下") return age < 30;
-  if (band === "30-35 岁") return age >= 30 && age <= 35;
-  if (band === "36 岁以上") return age > 35;
-  return true;
-}
-
-function matchHighlights(breakdown: Record<string, number>): string[] {
-  const out: string[] = [];
-  const city = breakdown["城市"] ?? 0;
-  if (city >= 25) out.push("同城");
-  else if (city >= 14) out.push("城市相近");
-  if ((breakdown["兴趣"] ?? 0) >= 9) out.push("兴趣相投");
-  if ((breakdown["生活方式"] ?? 0) >= 8) out.push("生活方式接近");
-  if ((breakdown["婚恋节奏"] ?? 0) >= 12) out.push("节奏一致");
-  if ((breakdown["学历"] ?? 0) >= 12) out.push("学历相当");
-  if ((breakdown["职业稳定"] ?? 0) >= 10) out.push("职业稳定");
-  return out;
-}
-
-function actionLabel(action: SwipeAction) {
-  const map: Record<SwipeAction, string> = {
-    like: "已表示感兴趣",
-    favorite: "已收藏",
-    pass: "已跳过",
-    block: "已屏蔽",
-    report: "已提交反馈",
-  };
-  return map[action];
+function newId(prefix: string) {
+  return `${prefix}_${Math.random().toString(16).slice(2, 8)}`;
 }
 
 function profileToDraft(profile: Profile): ProfileInput {
@@ -158,6 +121,12 @@ export default function App() {
   const [actedItems, setActedItems] = useState<Record<string, BrowseItem>>({});
   const [matches, setMatches] = useState<MatchWithProfile[]>([]);
   const [filters, setFilters] = useState<Filters>({ city: "全部", education: "全部", ageBand: "全部" });
+  const [vip, setVip] = useState(false);
+  const [chats, setChats] = useState<Record<string, ChatMessage[]>>({});
+  const [activeChatKey, setActiveChatKey] = useState<string | null>(null);
+  const [membershipOpen, setMembershipOpen] = useState(false);
+  const [likesOpen, setLikesOpen] = useState(false);
+  const [friendAdded, setFriendAdded] = useState<Profile | null>(null);
 
   async function runTask<T>(label: string, task: () => Promise<T>) {
     try {
@@ -171,6 +140,18 @@ export default function App() {
     }
   }
 
+  async function bootstrap(loggedIn: User) {
+    setUser(loggedIn);
+    const current = await api.currentProfile(loggedIn.id);
+    if (current) {
+      setProfile(current);
+      if (current.status === "active") {
+        await loadCandidates(current.id);
+        await loadMatches(current.id);
+      }
+    }
+  }
+
   async function handleLogin() {
     const normalizedPhone = phone.trim();
     if (!/^1\d{10}$/.test(normalizedPhone)) {
@@ -178,33 +159,15 @@ export default function App() {
       return;
     }
     const loggedIn = await runTask("登录中", () => api.login(normalizedPhone, "体验家长"));
-    setUser(loggedIn);
-    const current = await api.currentProfile(loggedIn.id);
-    if (current) {
-      setProfile(current);
-      if (current.status === "active") {
-        await loadCandidates(current.id);
-        await loadMatches(current.id);
-      }
-    }
+    await bootstrap(loggedIn);
   }
 
   function quickLogin() {
     setPhone("13900000005");
-    void handleLoginWithPhone("13900000005");
-  }
-
-  async function handleLoginWithPhone(nextPhone: string) {
-    const loggedIn = await runTask("登录中", () => api.login(nextPhone, "体验家长"));
-    setUser(loggedIn);
-    const current = await api.currentProfile(loggedIn.id);
-    if (current) {
-      setProfile(current);
-      if (current.status === "active") {
-        await loadCandidates(current.id);
-        await loadMatches(current.id);
-      }
-    }
+    void (async () => {
+      const loggedIn = await runTask("登录中", () => api.login("13900000005", "体验家长"));
+      await bootstrap(loggedIn);
+    })();
   }
 
   async function loadCandidates(profileId?: string) {
@@ -230,6 +193,16 @@ export default function App() {
     setToast("资料已确认，开始看对象");
   }
 
+  function ensureThread(other: Profile) {
+    setChats((current) => {
+      if (current[other.id]) return current;
+      return {
+        ...current,
+        [other.id]: [{ id: newId("m"), from: "them", text: openingMessage(other), time: "刚刚" }],
+      };
+    });
+  }
+
   async function act(item: BrowseItem, action: SwipeAction) {
     if (!profile) return;
     const result = await runTask("记录中", () =>
@@ -239,11 +212,44 @@ export default function App() {
     setActedItems((current) => ({ ...current, [item.candidate.id]: item }));
     setSelected(null);
     if (result.match) {
-      setToast("双方都感兴趣，已加入心动");
+      ensureThread(item.candidate);
       await loadMatches(profile.id);
+      setFriendAdded(item.candidate);
     } else {
       setToast(actionLabel(action));
     }
+  }
+
+  function openChat(other: Profile) {
+    ensureThread(other);
+    setActiveChatKey(other.id);
+    setFriendAdded(null);
+    setSelected(null);
+    setTab("messages");
+  }
+
+  function sendMessage(key: string, text: string) {
+    const mine: ChatMessage = { id: newId("m"), from: "me", text, time: "刚刚" };
+    setChats((current) => ({ ...current, [key]: [...(current[key] || []), mine] }));
+    const other = matches.find((row) => row.profile.id === key)?.profile;
+    const replyText = key === "assistant"
+      ? "收到，我继续帮孩子留意合适的人，有进展第一时间告诉您。"
+      : other
+        ? autoReply(other, text)
+        : "好的～";
+    window.setTimeout(() => {
+      setChats((current) => ({
+        ...current,
+        [key]: [...(current[key] || []), { id: newId("m"), from: "them", text: replyText, time: "刚刚" }],
+      }));
+    }, 800);
+  }
+
+  function subscribe(tierId: string) {
+    const tier = MEMBERSHIP_TIERS.find((item) => item.id === tierId);
+    setVip(true);
+    setMembershipOpen(false);
+    setToast(`已开通${tier?.name || "会员"}，权益已解锁`);
   }
 
   function logout() {
@@ -252,38 +258,69 @@ export default function App() {
     setCandidates([]);
     setMatches([]);
     setSelected(null);
-    setOwnProfileOpen(false);
     setActions({});
     setActedItems({});
+    setChats({});
+    setActiveChatKey(null);
+    setVip(false);
+    setMembershipOpen(false);
+    setLikesOpen(false);
+    setOwnProfileOpen(false);
+    setFriendAdded(null);
     setTab("browse");
   }
 
   const visibleCandidates = useMemo(() => {
     return candidates.filter((item) => {
-      if (actedItems[item.candidate.id]) return false;
       const c = item.candidate;
       if (filters.city !== "全部" && c.city !== filters.city) return false;
       if (filters.education !== "全部" && !c.education.includes(filters.education)) return false;
-      if (!inAgeBand(ageOf(c), filters.ageBand)) return false;
+      if (!inAgeBand(new Date().getFullYear() - c.birth_year, filters.ageBand)) return false;
       return true;
     });
-  }, [candidates, actedItems, filters]);
+  }, [candidates, filters]);
 
-  const cityOptions = useMemo(() => {
-    return ["全部", ...Array.from(new Set(candidates.map((item) => item.candidate.city)))];
-  }, [candidates]);
-
-  const matchedIds = useMemo(() => new Set(matches.map((row) => row.profile.id)), [matches]);
-
-  const likedItems = useMemo(
-    () =>
-      Object.values(actedItems).filter(
-        (item) =>
-          (actions[item.candidate.id] === "like" || actions[item.candidate.id] === "favorite") &&
-          !matchedIds.has(item.candidate.id),
-      ),
-    [actedItems, actions, matchedIds],
+  const cityOptions = useMemo(
+    () => ["全部", ...Array.from(new Set(candidates.map((item) => item.candidate.city)))],
+    [candidates],
   );
+
+  const friends = useMemo(() => new Set(matches.map((row) => row.profile.id)), [matches]);
+
+  const browseItems = vip ? visibleCandidates : visibleCandidates.slice(0, DAILY_FREE_LIMIT);
+
+  const likedList = useMemo(
+    () => Object.values(actedItems).filter((item) => actions[item.candidate.id] === "like"),
+    [actedItems, actions],
+  );
+  const favoriteList = useMemo(
+    () => Object.values(actedItems).filter((item) => actions[item.candidate.id] === "favorite"),
+    [actedItems, actions],
+  );
+  const whoLikesMe = useMemo(() => candidates.slice(0, 3).map((item) => item.candidate), [candidates]);
+
+  const threads = useMemo<Thread[]>(() => {
+    const assistant: Thread = {
+      key: "assistant",
+      profile: null,
+      title: "牵线红娘 小牵",
+      messages: chats["assistant"] || DEFAULT_ASSISTANT,
+      pinned: true,
+      unread: chats["assistant"] ? 0 : 2,
+    };
+    const friendThreads: Thread[] = matches.map((row) => ({
+      key: row.profile.id,
+      profile: row.profile,
+      title: row.profile.child_name,
+      messages: chats[row.profile.id] || [
+        { id: `seed-${row.profile.id}`, from: "them", text: openingMessage(row.profile), time: "刚刚" },
+      ],
+    }));
+    return [assistant, ...friendThreads];
+  }, [chats, matches]);
+
+  const messagesUnread = threads.reduce((sum, thread) => sum + (thread.unread || 0), 0);
+  const activeThread = threads.find((thread) => thread.key === activeChatKey) || null;
 
   // --- Login ---
   if (!user) {
@@ -309,7 +346,7 @@ export default function App() {
           <div className="login-insight">
             <span><strong>01</strong><small>引导建档</small></span>
             <span><strong>02</strong><small>挑选对象</small></span>
-            <span><strong>03</strong><small>双向确认</small></span>
+            <span><strong>03</strong><small>加好友沟通</small></span>
           </div>
           <label className="field login-field">
             <span>手机号</span>
@@ -349,34 +386,37 @@ export default function App() {
       <section className="phone-stage">
         {tab === "browse" && (
           <BrowseView
-            items={visibleCandidates}
+            items={browseItems}
             filters={filters}
             setFilters={setFilters}
             cityOptions={cityOptions}
             onOpen={setSelected}
             onReload={() => loadCandidates()}
             loading={loading}
+            vip={vip}
+            friends={friends}
+            whoLikesMeCount={whoLikesMe.length}
+            onOpenLikes={() => setLikesOpen(true)}
+            onUpgrade={() => setMembershipOpen(true)}
           />
         )}
-        {tab === "likes" && (
-          <LikesView matches={matches} liked={likedItems} actions={actions} onOpen={setSelected} />
+        {tab === "messages" && (
+          <MessagesView threads={threads} onOpenThread={(thread) => setActiveChatKey(thread.key)} setToast={setToast} />
         )}
+        {tab === "discover" && <DiscoverView setToast={setToast} />}
         {tab === "me" && (
           <MeView
             profile={profile}
             user={user}
-            likedCount={likedItems.length}
-            matchCount={matches.length}
+            vip={vip}
+            likedCount={likedList.length + favoriteList.length}
+            friendCount={matches.length}
+            whoLikesMeCount={whoLikesMe.length}
             onOpenProfile={() => setOwnProfileOpen(true)}
             onEdit={() => setEditing(true)}
-            setToast={setToast}
-          />
-        )}
-        {tab === "settings" && (
-          <SettingsView
-            profile={profile}
-            onEdit={() => setEditing(true)}
             onLogout={logout}
+            onUpgrade={() => setMembershipOpen(true)}
+            onOpenLikes={() => setLikesOpen(true)}
             setToast={setToast}
           />
         )}
@@ -387,571 +427,99 @@ export default function App() {
           </button>
         )}
 
+        {friendAdded && (
+          <div className="friend-snack">
+            {friendAdded.photos[0] ? (
+              <img src={publicAsset(friendAdded.photos[0])} alt={friendAdded.child_name} />
+            ) : (
+              <span className="friend-snack-ph">{initialFor(friendAdded.child_name)}</span>
+            )}
+            <div>
+              <strong>已和 {friendAdded.child_name} 互加好友</strong>
+              <small>双方都表示了感兴趣，可以聊聊了</small>
+            </div>
+            <button className="friend-snack-go" onClick={() => openChat(friendAdded)}>去聊天</button>
+            <button className="friend-snack-x" onClick={() => setFriendAdded(null)} aria-label="关闭"><X size={16} /></button>
+          </div>
+        )}
+
         <nav className="bottom-nav" aria-label="主导航">
           {tabs.map((item) => {
             const Icon = item.icon;
             return (
               <button key={item.key} className={tab === item.key ? "active" : ""} onClick={() => setTab(item.key)}>
-                <Icon size={18} />
+                <span className="nav-ico-wrap">
+                  <Icon size={19} />
+                  {item.key === "messages" && messagesUnread > 0 && <span className="nav-badge">{messagesUnread}</span>}
+                </span>
                 <span>{item.label}</span>
+                <span className="nav-dot" />
               </button>
             );
           })}
         </nav>
       </section>
 
-      <AnimatePresence>
-        {selected && (
-          <CandidateDetail
-            item={selected}
-            action={actions[selected.candidate.id]}
-            onClose={() => setSelected(null)}
-            onAction={act}
-            loading={loading}
-          />
-        )}
-        {ownProfileOpen && (
-          <OwnProfileDetail
-            profile={profile}
-            onClose={() => setOwnProfileOpen(false)}
-            onEdit={() => {
-              setOwnProfileOpen(false);
-              setEditing(true);
-            }}
-          />
-        )}
-      </AnimatePresence>
+      {selected && (
+        <CandidateDetail
+          item={selected}
+          action={actions[selected.candidate.id]}
+          isFriend={friends.has(selected.candidate.id)}
+          onClose={() => setSelected(null)}
+          onAction={act}
+          onChat={openChat}
+          loading={loading}
+        />
+      )}
+
+      {ownProfileOpen && (
+        <OwnProfileDetail
+          profile={profile}
+          onClose={() => setOwnProfileOpen(false)}
+          onEdit={() => {
+            setOwnProfileOpen(false);
+            setEditing(true);
+          }}
+        />
+      )}
+
+      {likesOpen && (
+        <LikesOverlay
+          vip={vip}
+          whoLikesMe={whoLikesMe}
+          liked={likedList}
+          favorites={favoriteList}
+          onClose={() => setLikesOpen(false)}
+          onOpen={(item) => {
+            setLikesOpen(false);
+            setSelected(item);
+          }}
+          onUpgrade={() => setMembershipOpen(true)}
+        />
+      )}
+
+      {activeThread && (
+        <Conversation
+          thread={activeThread}
+          onBack={() => setActiveChatKey(null)}
+          onSend={(text) => sendMessage(activeThread.key, text)}
+          onViewProfile={() => {
+            if (activeThread.profile) {
+              const match = candidates.find((item) => item.candidate.id === activeThread.key);
+              if (match) {
+                setActiveChatKey(null);
+                setSelected(match);
+              } else {
+                setToast("暂时无法打开资料");
+              }
+            }
+          }}
+        />
+      )}
+
+      {membershipOpen && (
+        <Membership vip={vip} onClose={() => setMembershipOpen(false)} onSubscribe={subscribe} />
+      )}
     </main>
   );
-}
-
-function BrowseView({
-  items,
-  filters,
-  setFilters,
-  cityOptions,
-  onOpen,
-  onReload,
-  loading,
-}: {
-  items: BrowseItem[];
-  filters: Filters;
-  setFilters: (filters: Filters) => void;
-  cityOptions: string[];
-  onOpen: (item: BrowseItem) => void;
-  onReload: () => void;
-  loading: string | null;
-}) {
-  return (
-    <div className="screen">
-      <header className="screen-head">
-        <div>
-          <span className="eyebrow">为孩子挑选</span>
-          <h1>看对象</h1>
-        </div>
-        <button className="ghost-pill" disabled aria-label="AI 搜索（即将上线）">
-          <Search size={16} /> AI 搜索
-        </button>
-      </header>
-
-      <div className="filter-bar">
-        <select value={filters.city} onChange={(event) => setFilters({ ...filters, city: event.target.value })}>
-          {cityOptions.map((city) => (
-            <option key={city} value={city}>{city === "全部" ? "城市 · 全部" : city}</option>
-          ))}
-        </select>
-        <select value={filters.ageBand} onChange={(event) => setFilters({ ...filters, ageBand: event.target.value })}>
-          {AGE_BANDS.map((band) => (
-            <option key={band} value={band}>{band === "全部" ? "年龄 · 全部" : band}</option>
-          ))}
-        </select>
-        <select value={filters.education} onChange={(event) => setFilters({ ...filters, education: event.target.value })}>
-          {["全部", "本科", "硕士"].map((edu) => (
-            <option key={edu} value={edu}>{edu === "全部" ? "学历 · 全部" : edu}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="screen-body">
-        {loading === "加载候选" && items.length === 0 ? (
-          <div className="loading-block"><Loader2 className="spin" size={22} /><span>正在挑选合适的人…</span></div>
-        ) : items.length === 0 ? (
-          <div className="empty-state">
-            <Compass size={28} />
-            <strong>暂时没有更多合适的人了</strong>
-            <span>可以放宽筛选条件，或稍后再来看看</span>
-            <button className="secondary-button" onClick={onReload}>重新加载</button>
-          </div>
-        ) : (
-          <div className="candidate-grid">
-            {items.map((item) => {
-              const c = item.candidate;
-              const highlights = matchHighlights(item.score_breakdown).slice(0, 2);
-              return (
-                <motion.button
-                  key={c.id}
-                  className="candidate-card"
-                  onClick={() => onOpen(item)}
-                  whileTap={{ scale: 0.985 }}
-                >
-                  <div className="candidate-photo">
-                    {c.photos[0] ? (
-                      <img src={publicAsset(c.photos[0])} alt={c.child_name} loading="lazy" />
-                    ) : (
-                      <span className="photo-fallback">{c.child_name.slice(0, 1)}</span>
-                    )}
-                  </div>
-                  <div className="candidate-info">
-                    <div className="candidate-name">
-                      <strong>{c.child_name}</strong>
-                      <small>{ageOf(c)} 岁</small>
-                    </div>
-                    <p className="candidate-meta"><MapPin size={13} /> {c.city} · {c.job_type}</p>
-                    <div className="chips">
-                      {highlights.map((tag) => (
-                        <span key={tag} className="chip static accent">{tag}</span>
-                      ))}
-                    </div>
-                  </div>
-                </motion.button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CandidateDetail({
-  item,
-  action,
-  onClose,
-  onAction,
-  loading,
-}: {
-  item: BrowseItem;
-  action?: SwipeAction;
-  onClose: () => void;
-  onAction: (item: BrowseItem, action: SwipeAction) => void;
-  loading: string | null;
-}) {
-  const c = item.candidate;
-  const page = c.public_page;
-  const highlights = matchHighlights(item.score_breakdown);
-  const sections = [
-    { label: "基本情况", value: page.basic_summary },
-    { label: "工作与生活", value: page.work_life },
-    { label: "性格与兴趣", value: page.personality_interests },
-    { label: "家庭氛围", value: page.family_values },
-    { label: "希望认识的人", value: page.looking_for },
-  ].filter((section) => section.value);
-
-  return (
-    <motion.div
-      className="detail-overlay"
-      initial={{ opacity: 0, y: 30 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 30 }}
-      transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
-    >
-      <div className="detail-scroll">
-        <div className="detail-hero">
-          {c.photos[0] ? (
-            <img src={publicAsset(c.photos[0])} alt={c.child_name} />
-          ) : (
-            <div className="detail-hero-fallback">{c.child_name.slice(0, 1)}</div>
-          )}
-          <button className="detail-back" onClick={onClose} aria-label="返回"><ChevronLeft size={22} /></button>
-          <div className="detail-hero-meta">
-            <strong>{c.child_name}</strong>
-            <span>{ageOf(c)} 岁 · {c.city} · {c.job_type}</span>
-          </div>
-        </div>
-
-        <div className="detail-body">
-          {highlights.length > 0 && (
-            <div className="chips">
-              {highlights.map((tag) => (
-                <span key={tag} className="chip static accent">{tag}</span>
-              ))}
-            </div>
-          )}
-
-          {c.photos.length > 1 && (
-            <div className="photo-gallery">
-              {c.photos.slice(1).map((photo, index) => (
-                <img key={photo} src={publicAsset(photo)} alt={`${c.child_name} ${index + 2}`} loading="lazy" />
-              ))}
-            </div>
-          )}
-
-          <section className="reason-card">
-            <div className="reason-title"><Sparkles size={16} /> 为什么推荐 TA</div>
-            <p>{item.reason}</p>
-          </section>
-
-          {sections.map((section) => (
-            <section key={section.label} className="detail-section">
-              <h3>{section.label}</h3>
-              <p>{section.value}</p>
-            </section>
-          ))}
-
-          <div className="detail-spacer" />
-        </div>
-      </div>
-
-      <div className="detail-actions">
-        <button className="act-btn pass" onClick={() => onAction(item, "pass")} disabled={Boolean(loading)} aria-label="跳过">
-          <X size={22} />
-          <small>跳过</small>
-        </button>
-        <button
-          className={action === "favorite" ? "act-btn fav on" : "act-btn fav"}
-          onClick={() => onAction(item, "favorite")}
-          disabled={Boolean(loading)}
-          aria-label="收藏"
-        >
-          <Bookmark size={20} />
-          <small>收藏</small>
-        </button>
-        <button
-          className={action === "like" ? "act-btn like on" : "act-btn like"}
-          onClick={() => onAction(item, "like")}
-          disabled={Boolean(loading)}
-          aria-label="感兴趣"
-        >
-          <Heart size={22} />
-          <small>感兴趣</small>
-        </button>
-      </div>
-    </motion.div>
-  );
-}
-
-function LikesView({
-  matches,
-  liked,
-  actions,
-  onOpen,
-}: {
-  matches: MatchWithProfile[];
-  liked: BrowseItem[];
-  actions: Record<string, SwipeAction>;
-  onOpen: (item: BrowseItem) => void;
-}) {
-  const empty = matches.length === 0 && liked.length === 0;
-  return (
-    <div className="screen">
-      <header className="screen-head">
-        <div>
-          <span className="eyebrow">沟通进展</span>
-          <h1>心动</h1>
-        </div>
-      </header>
-      <div className="screen-body">
-        {empty && (
-          <div className="empty-state">
-            <Heart size={28} />
-            <strong>还没有心动记录</strong>
-            <span>在「看对象」里收藏或表示感兴趣，会出现在这里</span>
-          </div>
-        )}
-
-        {matches.length > 0 && (
-          <section className="group">
-            <div className="group-title">互相感兴趣</div>
-            <div className="row-list">
-              {matches.map((row) => (
-                <article key={row.match.id} className="person-row">
-                  <Avatar profile={row.profile} />
-                  <div>
-                    <strong>{row.profile.child_name}</strong>
-                    <p>{row.profile.public_page.headline}</p>
-                  </div>
-                  <span className="row-tag green">双向</span>
-                </article>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {liked.length > 0 && (
-          <section className="group">
-            <div className="group-title">我关注的</div>
-            <div className="row-list">
-              {liked.map((item) => (
-                <button key={item.candidate.id} className="person-row tappable" onClick={() => onOpen(item)}>
-                  <Avatar profile={item.candidate} />
-                  <div>
-                    <strong>{item.candidate.child_name}</strong>
-                    <p>{ageOf(item.candidate)} 岁 · {item.candidate.city}</p>
-                  </div>
-                  <span className="row-tag">{actions[item.candidate.id] === "like" ? "感兴趣" : "已收藏"}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MeView({
-  profile,
-  user,
-  likedCount,
-  matchCount,
-  onOpenProfile,
-  onEdit,
-  setToast,
-}: {
-  profile: Profile;
-  user: User;
-  likedCount: number;
-  matchCount: number;
-  onOpenProfile: () => void;
-  onEdit: () => void;
-  setToast: (message: string | null) => void;
-}) {
-  const page = profile.public_page;
-
-  return (
-    <div className="screen">
-      <header className="screen-head">
-        <div>
-          <span className="eyebrow">我的</span>
-          <h1>个人中心</h1>
-        </div>
-      </header>
-      <div className="screen-body">
-        <button className="me-card tappable-card" onClick={onOpenProfile}>
-          {profile.photos[0] ? (
-            <img className="me-photo" src={publicAsset(profile.photos[0])} alt={profile.child_name} />
-          ) : (
-            <div className="me-photo placeholder">{profile.child_name.slice(0, 1) || "牵"}</div>
-          )}
-          <div className="me-meta">
-            <strong>{profile.child_name}</strong>
-            <small>{ageOf(profile)} 岁 · {profile.city} · {profile.job_type}</small>
-            <span className="status-chip"><Check size={13} /> 资料已发布</span>
-          </div>
-          <ChevronRight className="row-arrow" size={18} />
-        </button>
-
-        {page.headline && <p className="me-headline">{page.headline}</p>}
-
-        <section className="metric-strip">
-          <span>
-            <strong>{profile.completeness}%</strong>
-            <small>资料完整度</small>
-          </span>
-          <span>
-            <strong>{likedCount}</strong>
-            <small>已关注</small>
-          </span>
-          <span>
-            <strong>{matchCount}</strong>
-            <small>双向心动</small>
-          </span>
-        </section>
-
-        <section className="settings-group">
-          <div className="group-title">常用功能</div>
-          <div className="settings-list">
-            <button className="settings-row" onClick={onEdit}>
-              <FileText size={17} />
-              <span>
-                <strong>编辑孩子资料</strong>
-                <small>补充职业、家庭、择偶偏好</small>
-              </span>
-              <ChevronRight className="row-arrow" size={17} />
-            </button>
-            <button className="settings-row" onClick={onOpenProfile}>
-              <Eye size={17} />
-              <span>
-                <strong>查看公开档案</strong>
-                <small>对外展示的完整资料页</small>
-              </span>
-              <ChevronRight className="row-arrow" size={17} />
-            </button>
-            <button className="settings-row" onClick={() => setToast("分享预览稍后接入")}>
-              <Sparkles size={17} />
-              <span>
-                <strong>生成介绍话术</strong>
-                <small>给亲友或红娘看的简短版本</small>
-              </span>
-              <ChevronRight className="row-arrow" size={17} />
-            </button>
-          </div>
-        </section>
-
-        <section className="settings-group">
-          <div className="group-title">账号</div>
-          <div className="settings-list">
-            <div className="settings-row static-row">
-              <UserRound size={17} />
-              <span>
-                <strong>{user.display_name}</strong>
-                <small>{user.phone}</small>
-              </span>
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
-  );
-}
-
-function SettingsView({
-  profile,
-  onEdit,
-  onLogout,
-  setToast,
-}: {
-  profile: Profile;
-  onEdit: () => void;
-  onLogout: () => void;
-  setToast: (message: string | null) => void;
-}) {
-  const settingSections = [
-    {
-      title: "推荐设置",
-      rows: [
-        { icon: SlidersHorizontal, title: "筛选偏好", desc: `${profile.preference_city} · ${profile.preference_education}`, action: onEdit },
-        { icon: Bell, title: "推荐提醒", desc: "每天少量推荐，避免信息过载", action: () => setToast("提醒设置稍后接入") },
-      ],
-    },
-    {
-      title: "安全与展示",
-      rows: [
-        { icon: Lock, title: "隐私与联系方式", desc: "联系方式默认不公开", action: () => setToast("隐私设置稍后接入") },
-        { icon: Eye, title: "资料展示范围", desc: "控制谁能看到孩子资料", action: () => setToast("展示范围稍后接入") },
-      ],
-    },
-    {
-      title: "应用",
-      rows: [
-        { icon: Database, title: "演示数据", desc: "当前使用本地模拟数据库", action: () => setToast("演示数据仅用于原型体验") },
-        { icon: HelpCircle, title: "帮助与反馈", desc: "记录使用问题和优化建议", action: () => setToast("反馈入口稍后接入") },
-      ],
-    },
-  ];
-
-  return (
-    <div className="screen">
-      <header className="screen-head">
-        <div>
-          <span className="eyebrow">设置</span>
-          <h1>偏好与账户</h1>
-        </div>
-      </header>
-      <div className="screen-body">
-        {settingSections.map((section) => (
-          <section className="settings-group" key={section.title}>
-            <div className="group-title">{section.title}</div>
-            <div className="settings-list">
-              {section.rows.map((row) => {
-                const Icon = row.icon;
-                return (
-                  <button className="settings-row" key={row.title} onClick={row.action}>
-                    <Icon size={17} />
-                    <span>
-                      <strong>{row.title}</strong>
-                      <small>{row.desc}</small>
-                    </span>
-                    <ChevronRight className="row-arrow" size={17} />
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        ))}
-
-        <button className="logout-row" onClick={onLogout}>
-          <LogOut size={17} />
-          退出体验
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function OwnProfileDetail({
-  profile,
-  onClose,
-  onEdit,
-}: {
-  profile: Profile;
-  onClose: () => void;
-  onEdit: () => void;
-}) {
-  const page = profile.public_page;
-  const tags = [
-    ...((profile.ai_structured?.personality_tags as string[] | undefined) || profile.personality_tags || []),
-    ...((profile.ai_structured?.interest_tags as string[] | undefined) || profile.interests || []),
-  ].slice(0, 8);
-  const sections = [
-    { label: "基本情况", value: page.basic_summary },
-    { label: "工作与生活", value: page.work_life },
-    { label: "性格与兴趣", value: page.personality_interests },
-    { label: "家庭氛围", value: page.family_values },
-    { label: "希望认识的人", value: page.looking_for },
-  ].filter((section) => section.value);
-
-  return (
-    <motion.div
-      className="profile-overlay"
-      initial={{ opacity: 0, y: 24 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 24 }}
-      transition={{ duration: 0.22, ease: "easeOut" }}
-    >
-      <header className="profile-overlay-head">
-        <button onClick={onClose} aria-label="返回"><ChevronLeft size={20} /></button>
-        <strong>公开档案</strong>
-        <button onClick={onEdit} aria-label="编辑"><Pencil size={17} /></button>
-      </header>
-      <div className="profile-overlay-body">
-        <article className="me-card profile-card-large">
-          {profile.photos[0] ? (
-            <img className="me-photo" src={publicAsset(profile.photos[0])} alt={profile.child_name} />
-          ) : (
-            <div className="me-photo placeholder">{profile.child_name.slice(0, 1) || "牵"}</div>
-          )}
-          <div className="me-meta">
-            <strong>{profile.child_name}</strong>
-            <small>{ageOf(profile)} 岁 · {profile.city} · {profile.job_type}</small>
-            <span className="status-chip"><Check size={13} /> 正在展示</span>
-          </div>
-        </article>
-
-        {page.headline && <p className="me-headline">{page.headline}</p>}
-
-        {tags.length > 0 && (
-          <div className="chips">
-            {tags.map((tag) => (
-              <span key={tag} className="chip static">{tag}</span>
-            ))}
-          </div>
-        )}
-
-        {sections.map((section) => (
-          <section key={section.label} className="detail-section">
-            <h3>{section.label}</h3>
-            <p>{section.value}</p>
-          </section>
-        ))}
-      </div>
-    </motion.div>
-  );
-}
-
-function Avatar({ profile }: { profile: Profile }) {
-  if (profile.photos[0]) {
-    return <img className="avatar-img" src={publicAsset(profile.photos[0])} alt={profile.child_name} loading="lazy" />;
-  }
-  return <span className="avatar-img placeholder">{profile.child_name.slice(0, 1)}</span>;
 }

@@ -5,6 +5,7 @@ import {
   Check,
   ChevronLeft,
   ImagePlus,
+  Info,
   Loader2,
   Sparkles,
 } from "lucide-react";
@@ -153,7 +154,11 @@ export function Onboarding({
           transition={{ duration: 0.22, ease: "easeOut" }}
         >
           {step === 0 && (
-            <Step title="先为孩子建一张资料卡" subtitle="选择性别，填写称呼，挑一张照片">
+            <Step
+              title="先为孩子建一张资料卡"
+              subtitle="选择性别，填写称呼，挑一张照片"
+              hint="选一张能代表孩子气质的生活照最好；现在不方便也可以稍后再传。"
+            >
               <Segmented
                 value={draft.gender}
                 onChange={(value) => update("gender", value as Gender)}
@@ -230,7 +235,11 @@ export function Onboarding({
           )}
 
           {step === 2 && (
-            <Step title="孩子是怎样的人？" subtitle="选几个最像 TA 的词，也可以自己加">
+            <Step
+              title="孩子是怎样的人？"
+              subtitle="选几个最像 TA 的词，也可以自己加"
+              hint="多选几个最贴近的词，AI 会据此把介绍写得更自然、不夸张。"
+            >
               <ChipSelect
                 options={PERSONALITY}
                 value={draft.personality_tags}
@@ -259,7 +268,11 @@ export function Onboarding({
           )}
 
           {step === 4 && (
-            <Step title="工作与家庭" subtitle="简单说说，AI 会帮你整理成自然的介绍">
+            <Step
+              title="工作与家庭"
+              subtitle="简单说说，AI 会帮你整理成自然的介绍"
+              hint="随口说几句就行，措辞交给 AI 整理，你后面还能修改。"
+            >
               <label className="field ob-field">
                 <span>职业方向（一句话）</span>
                 <textarea
@@ -331,7 +344,11 @@ export function Onboarding({
           )}
 
           {step === 6 && (
-            <Step title="父母想补充的话" subtitle="可选。写给可能的对方家庭看，也会帮助 AI 理解">
+            <Step
+              title="父母想补充的话"
+              subtitle="可选。写给可能的对方家庭看，也会帮助 AI 理解"
+              hint="这一段可填可不填；写下来能帮 AI 更懂孩子，也更打动合适的家庭。"
+            >
               <label className="field ob-field">
                 <textarea
                   rows={6}
@@ -406,12 +423,28 @@ export function Onboarding({
   );
 }
 
-function Step({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+function Step({
+  title,
+  subtitle,
+  hint,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="ob-step">
       <h1 className="ob-title">{title}</h1>
       <p className="ob-subtitle">{subtitle}</p>
       <div className="ob-content">{children}</div>
+      {hint && (
+        <div className="ob-hint">
+          <Info size={15} />
+          <span>{hint}</span>
+        </div>
+      )}
     </div>
   );
 }
